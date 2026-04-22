@@ -1,0 +1,8 @@
+pydantic-ai==1.84.1
+pydantic-ai-slim[openai]
+pydantic-ai[mcp]
+openai==2.32.0
+fastapi[standard]
+redis==7.0.0
+pydantic-settings
+PyJWT[crypto]
