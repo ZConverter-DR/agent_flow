@@ -94,6 +94,7 @@ async def answer_generator(input: str) -> list:
             # "test_team 워크스페이스에 들어온 유저 리스트 알려줘"
             input,
         )
+        test1 = result.new_messages()
         print("=== Slack 결과 ===")
-        return result
+        return result.output
         

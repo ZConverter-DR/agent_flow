@@ -43,10 +43,10 @@ async def websocket_chat(
         while True:
             message = await websocket.receive_text()
             logger.debug(f"[WS] 수신 - client={client}, message={message!r}")
-            result = await answer_generator(message, message_history)
-            await save_history(redis, history_key, result.new_messages())
+            result = await answer_generator(message)
+            # await save_history(redis, history_key, result.new_messages())
             
-            response = f"{result.output}"
+            response = f"{result}"
             await websocket.send_text(response)
     except WebSocketDisconnect as e:
         logger.info(f"[WS] 클라이언트 정상 종료 - client={client}, code={e.code}")
