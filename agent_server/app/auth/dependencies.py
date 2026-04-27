@@ -1,8 +1,7 @@
-# app/dependencies/auth.py
 from fastapi import Depends, Header, HTTPException
 from redis.asyncio import Redis
 from app.common.redis import get_redis
-from app.auth.jwt_verift import verify_jwt
+from app.auth.jwt_verify import verify_jwt
 from app.auth.schema import TokenPayload
 
 async def get_current_user(
