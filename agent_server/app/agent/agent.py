@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langgraph_supervisor import create_supervisor
 
@@ -92,7 +91,9 @@ def build_supervisor(slack_tools, filesystem_tools, openstack_tools) -> str:
         prompt=SUPERVISOR_PROMPT,
     ).compile()
 
-async def answer_generator(supervisor, input: str) -> str:
-    result = await supervisor.ainvoke({"messages": [("human", input)]})
+async def answer_generator(supervisor, input: str, history: list = []) -> str:
+    result = await supervisor.ainvoke({
+        "messages": history + [("human", input)]
+    })
     return result["messages"][-1].content
 

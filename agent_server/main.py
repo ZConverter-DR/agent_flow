@@ -1,8 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from fastapi import FastAPI, Depends
-from app.agent.agent import build_supervisor, _slack_mcp_config, _filesystem_mcp_config, _openstack_mcp_config
+from fastapi import FastAPI, Depends, Request
+from fastapi.responses import FileResponse          # [TEST] 삭제 시 제거
+from fastapi.staticfiles import StaticFiles         # [TEST] 삭제 시 제거
+from pydantic import BaseModel                      # [TEST] 삭제 시 제거
+from app.agent.agent import build_supervisor, answer_generator, _slack_mcp_config, _filesystem_mcp_config, _openstack_mcp_config
 from app.auth.dependencies import get_current_user
 from app.auth.schema import TokenPayload
 from app.ws.chat import router as ws_router
@@ -26,8 +29,15 @@ logging.basicConfig(
 )
 
 app = FastAPI(lifespan=lifespan)
-
+app.mount("/static", StaticFiles(directory="static"), name="static")  # [TEST] 삭제 시 제거
 app.include_router(ws_router)
+
+# [TEST] 아래 두 엔드포인트 삭제 시 위 mount("/static") 및 관련 import도 함께 제거
+@app.get("/ai/test/ui")
+async def test_ui():
+    return FileResponse("static/test.html")
+
+
 
 @app.post("/ai/chat")
 async def chat(
@@ -38,3 +48,13 @@ async def chat(
         "project": user.project_id,
     }
     
+# [TEST] 아래 블록 전체 삭제 가능 (TestRequest, test_chat)
+class TestRequest(BaseModel):
+    message: str
+
+@app.post("/ai/test")
+async def test_chat(request: Request, body: TestRequest):
+    supervisor = request.app.state.supervisor
+    result = await answer_generator(supervisor, body.message)
+    return {"result": result}
+# [TEST] end

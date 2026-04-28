@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, Query
 from fastapi.websockets import WebSocketDisconnect
-# from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from redis.asyncio import Redis
 from starlette.websockets import WebSocketState
 from app.auth.jwt_verify import verify_jwt
@@ -56,21 +56,28 @@ async def websocket_chat(
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011)
 
-# async def load_history(redis: Redis, history_key: str) -> list:
-#     raw = await redis.get(history_key)
-#     return ModelMessagesTypeAdapter.validate_json(raw) if raw else []
+async def load_history(redis: Redis, history_key: str) -> list[BaseMessage]:
+    raw_list = await redis.lrange(history_key, 0, -1)
+    messages = []
+    for raw in raw_list:
+        data = json.loads(raw)
+        if data["role"] == "user":
+            messages.append(HumanMessage(content=data["content"]))
+        elif data["role"] == "assistant":
+            messages.append(AIMessage(content=data["content"]))
+    return messages
 
-# async def save_history(redis: Redis, history_key: str, messages: list):
-#     for msg in messages:
-#         if isinstance(msg, HumanMessage):
-#             await redis.rpush(history_key, json.dumps({
-#                 "role": "user",
-#                 "content": msg.content,
-#                 "ts": datetime.now(timezone.utc).isoformat(),
-#             }))
-#         elif isinstance(msg, AIMessage):
-#             await redis.rpush(history_key, json.dumps({
-#                 "role": "assistant",
-#                 "content": msg.content,
-#                 "ts": datetime.now(timezone.utc).isoformat(),
-#             }))
+async def save_history(redis: Redis, history_key: str, messages: list):
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            await redis.rpush(history_key, json.dumps({
+                "role": "user",
+                "content": msg.content,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }))
+        elif isinstance(msg, AIMessage):
+            await redis.rpush(history_key, json.dumps({
+                "role": "assistant",
+                "content": msg.content,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }))
