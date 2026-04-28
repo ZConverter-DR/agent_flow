@@ -3,10 +3,9 @@ from pathlib import Path
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langgraph_supervisor import create_supervisor
-
+from app.agent.tools import wrap_destructive_tools
 from app.common.config import settings
 
-print(f"NOTION_API_KEY 로드됨: {bool(settings.notion_api_key)}")
 print(f"slack_bot_token 로드됨: {bool(settings.slack_bot_token)}")
 print(f"slack_team_id 로드됨: {bool(settings.slack_team_id)}")
 
@@ -46,6 +45,7 @@ OPENSTACK_PROMPT = """
 You are an OpenStack infrastructure assistant.
 You can get server info, create VMs, execute recovery, and check recovery status.
 Call each tool ONLY ONCE. Never repeat tool calls.
+If this tool returns [CANCELLED], the action was NOT performed. Inform the user it was cancelled and stop.
 You MUST always respond in Korean.
 """
 
@@ -80,7 +80,8 @@ _openstack_mcp_config = {
     }
 }
 
-def build_supervisor(slack_tools, filesystem_tools, openstack_tools) -> str:
+def build_supervisor(slack_tools, filesystem_tools, openstack_tools, checkpointer) -> str:
+    openstack_tools = wrap_destructive_tools(openstack_tools)
     slack_agent = create_react_agent(llm, slack_tools, name="slack_agent", prompt=SLACK_PROMPT)
     filesystem_agent = create_react_agent(llm, filesystem_tools, name="filesystem_agent", prompt=FILESYSTEM_PROMPT)
     openstack_agent = create_react_agent(llm, openstack_tools, name="openstack_agent", prompt=OPENSTACK_PROMPT)
@@ -89,11 +90,9 @@ def build_supervisor(slack_tools, filesystem_tools, openstack_tools) -> str:
         agents=[slack_agent, filesystem_agent, openstack_agent],
         model=llm,
         prompt=SUPERVISOR_PROMPT,
-    ).compile()
+    ).compile(checkpointer=checkpointer)
 
-async def answer_generator(supervisor, input: str, history: list = []) -> str:
-    result = await supervisor.ainvoke({
-        "messages": history + [("human", input)]
-    })
-    return result["messages"][-1].content
+async def answer_generator(supervisor, input, thread_id: str) -> dict:
+    config = {"configurable": {"thread_id": thread_id}}
+    return await supervisor.ainvoke(input, config=config)
 

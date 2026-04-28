@@ -6,7 +6,7 @@ execute_recovery_tool = Tool(
 Use this when the user asks to recover, restart, or fix a problematic server.
 This calls the ZConverter AI Agent API already running inside the VM — not cloud-init.
 IMPORTANT: Always call get_server_info first to confirm the server is in ERROR or SHUTOFF state.
-WARNING: This affects a live VM. Confirm with user before calling.
+If this tool returns [CANCELLED], the action was NOT performed. Inform the user it was cancelled and stop.
 Returns: recovery job ID and initial status (PENDING).""",
     inputSchema={
         "type": "object",
@@ -34,7 +34,6 @@ get_recovery_status_tool = Tool(
     description="""Trigger a recovery action on a failed OpenStack VM.
 Use this when the user asks to recover, restart, or fix a problematic server.
 IMPORTANT: Always call get_server_info first to confirm the server is in ERROR or SHUTOFF state.
-WARNING: This affects a live VM. Confirm with user before calling.
 Returns: recovery job ID — pass this to get_recovery_status to monitor progress.""",
     inputSchema={
         "type": "object",

@@ -1,13 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from fastapi import FastAPI, Depends, Request
-from fastapi.responses import FileResponse          # [TEST] 삭제 시 제거
-from fastapi.staticfiles import StaticFiles         # [TEST] 삭제 시 제거
-from pydantic import BaseModel                      # [TEST] 삭제 시 제거
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from fastapi import FastAPI
 from app.agent.agent import build_supervisor, answer_generator, _slack_mcp_config, _filesystem_mcp_config, _openstack_mcp_config
 from app.auth.dependencies import get_current_user
 from app.auth.schema import TokenPayload
+from app.common.config import settings
 from app.ws.chat import router as ws_router
 
 @asynccontextmanager
@@ -19,9 +18,19 @@ async def lifespan(app: FastAPI):
     slack_tools = await slack_client.get_tools()
     filesystem_tools = await filesystem_client.get_tools()
     openstack_tools = await openstack_client.get_tools()
-
-    app.state.supervisor = build_supervisor(slack_tools, filesystem_tools, openstack_tools)
-    yield
+    
+    redis_url = f"redis://{settings.redis_host}:{settings.redis_port}"
+    async with AsyncRedisSaver.from_conn_string(
+        redis_url,
+        ttl={"default_ttl": 60, "refresh_on_read": True}    # 마지막 대화 후 60분
+    ) as checkpointer:
+        app.state.supervisor = build_supervisor(
+            slack_tools,
+            filesystem_tools,
+            openstack_tools,
+            checkpointer,
+        )
+        yield
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,32 +38,4 @@ logging.basicConfig(
 )
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")  # [TEST] 삭제 시 제거
 app.include_router(ws_router)
-
-# [TEST] 아래 두 엔드포인트 삭제 시 위 mount("/static") 및 관련 import도 함께 제거
-@app.get("/ai/test/ui")
-async def test_ui():
-    return FileResponse("static/test.html")
-
-
-
-@app.post("/ai/chat")
-async def chat(
-    user: TokenPayload = Depends(get_current_user)
-):
-    return {
-        "message": f"{user.username}님 안녕하세요.",
-        "project": user.project_id,
-    }
-    
-# [TEST] 아래 블록 전체 삭제 가능 (TestRequest, test_chat)
-class TestRequest(BaseModel):
-    message: str
-
-@app.post("/ai/test")
-async def test_chat(request: Request, body: TestRequest):
-    supervisor = request.app.state.supervisor
-    result = await answer_generator(supervisor, body.message)
-    return {"result": result}
-# [TEST] end

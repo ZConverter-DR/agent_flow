@@ -20,9 +20,11 @@ Returns: instance ID, name, status (ACTIVE/SHUTOFF/ERROR), flavor, IP addresses,
 
 create_vm_tool = Tool(
     name="create_vm",
-    description="""Create a new OpenStack VM instance with ZConverter AI Agent pre-installed.
-Use this only when the user explicitly requests a new VM.
-WARNING: This provisions real infrastructure and incurs cost. Confirm with user before calling.""",
+    description="""Create a new virtual machine instance in OpenStack.
+Use this tool when the user explicitly requests to create, launch, provision, or deploy a VM/server.
+Only call this tool when all required parameters are provided or can be clearly inferred.
+If any required value is missing, ask the user for clarification first.
+""",
     inputSchema={
         "type": "object",
         "properties": {

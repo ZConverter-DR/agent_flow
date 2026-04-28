@@ -10,3 +10,4 @@ langchain-openai
 langchain-mcp-adapters
 langgraph
 langgraph-supervisor
+langgraph-checkpoint-redis
