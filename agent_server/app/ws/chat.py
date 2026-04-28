@@ -3,9 +3,9 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, Query
 from fastapi.websockets import WebSocketDisconnect
-from starlette.websockets import WebSocketState
-from pydantic_ai import ModelMessagesTypeAdapter, ModelRequest, ModelRespones, UserPromptPart, TextPart
+# from langchain_core.messages import HumanMessage, AIMessage
 from redis.asyncio import Redis
+from starlette.websockets import WebSocketState
 from app.auth.jwt_verify import verify_jwt
 from app.common.redis import get_redis
 from app.agent.agent import answer_generator
@@ -39,11 +39,12 @@ async def websocket_chat(
         return
 
     logger.info(f"[WS] 메시지 루프 시작 - client={client}")
+    supervisor = websocket.app.state.supervisor
     try:
         while True:
             message = await websocket.receive_text()
             logger.debug(f"[WS] 수신 - client={client}, message={message!r}")
-            result = await answer_generator(message)
+            result = await answer_generator(supervisor, message)
             # await save_history(redis, history_key, result.new_messages())
             
             response = f"{result}"
@@ -55,26 +56,21 @@ async def websocket_chat(
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011)
 
-async def load_history(redis: Redis, history_key: str) -> list:
-    raw = await redis.get(history_key)
-    return ModelMessagesTypeAdapter.validate_json(raw) if raw else []
+# async def load_history(redis: Redis, history_key: str) -> list:
+#     raw = await redis.get(history_key)
+#     return ModelMessagesTypeAdapter.validate_json(raw) if raw else []
 
-async def save_history(redis: Redis, history_key: str, message_history: list):
-    for msg in message_history:
-        if isinstance(msg, ModelRequest):
-            for part in msg.parts:
-                if isinstance(part, UserPromptPart):
-                    await redis.rpush(history_key, json.dumps({
-                        "role": "user",
-                        "content": part.content,
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    }))
-        elif isinstance(msg, ModelRespones):
-            for part in msg.parts:
-                if isinstance(part, TextPart):
-                    await redis.rpush(history_key, json.dumps({
-                        "role": "assistant",
-                        "content": part.content,
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    }))
-    
+# async def save_history(redis: Redis, history_key: str, messages: list):
+#     for msg in messages:
+#         if isinstance(msg, HumanMessage):
+#             await redis.rpush(history_key, json.dumps({
+#                 "role": "user",
+#                 "content": msg.content,
+#                 "ts": datetime.now(timezone.utc).isoformat(),
+#             }))
+#         elif isinstance(msg, AIMessage):
+#             await redis.rpush(history_key, json.dumps({
+#                 "role": "assistant",
+#                 "content": msg.content,
+#                 "ts": datetime.now(timezone.utc).isoformat(),
+#             }))

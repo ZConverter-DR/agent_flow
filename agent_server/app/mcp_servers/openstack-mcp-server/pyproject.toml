@@ -1,0 +1,28 @@
+[project]
+name = "openstack-mcp-server"
+version = "0.1.0"
+description = "OpenStack MCP Server for ZConverter AI Agent"
+requires-python = ">=3.11"        # match 문법 쓰려면 3.10+, 3.11 권장
+
+dependencies = [
+    "mcp>=1.0.0",                 # MCP 서버 SDK
+    "openstacksdk>=2.0.0",        # OpenStack Nova, Glance, Neutron 연동
+    "httpx>=0.27.0",              # ZConverter AI Agent API 호출 (async)
+    "python-dotenv>=1.0.0",       # .env 파일 로드
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",     # async 핸들러 테스트용
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools", "handlers", "clients"]
+
+[project.scripts]
+openstack-mcp-server = "main:main"   # uvx or python -m으로 실행할 때

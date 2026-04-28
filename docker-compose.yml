@@ -34,6 +34,7 @@ services:
       - "8000:8000"
     volumes:
       - ./secrets:/app/secrets:ro
+      - /opt/stack/:/opt/stack:ro
     networks:
       - appnet
 
