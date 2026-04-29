@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from langgraph_supervisor import create_supervisor
 from app.agent.tools import wrap_destructive_tools
 from app.common.config import settings
 
@@ -20,34 +19,22 @@ _OPENSTACK_SERVER_DIR = str(
     Path(__file__).parent.parent / "mcp_servers" / "openstack-mcp-server"
 )
 
-SUPERVISOR_PROMPT = """
-Analyze the user's request and delegate to the appropriate agent.
-- Slack-related requests (channels, messages, users) → slack_agent
-- File/Directory-related requests (read, write, list) → filesystem_agent
-- OpenStack-related requests (server info, VM creation, recovery) → openstack_agent
+_MOCK_SERVER_DIR = str(
+    Path(__file__).parent.parent / "mcp_servers" / "test_mock_server"
+)
+
+# - Mock: generate policies, generate reports, save history records
+AGENT_PROMPT = """
+You are an infrastructure assistant.
+You can use the following tools to help the user:
+- Slack: post messages, reply to threads, add reactions
+- OpenStack: get server info, create VMs, execute recovery, check recovery status
+
+Call each tool ONLY ONCE. Never repeat tool calls.
+If a tool returns [CANCELLED], the action was NOT performed. Inform the user it was cancelled and stop.
 You MUST always respond in Korean.
 """
 
-SLACK_PROMPT = """
-You are a Slack assistant.
-Call each tool ONLY ONCE. Never repeat tool calls.
-You MUST always respond in Korean.
-Respond only in JSON format.
-"""
-
-FILESYSTEM_PROMPT = """You are a filesystem assistant.
-You can read files, write files, and list directories.
-Call each tool ONLY ONCE. Never repeat tool calls.
-You MUST always respond in Korean.
-"""
-
-OPENSTACK_PROMPT = """
-You are an OpenStack infrastructure assistant.
-You can get server info, create VMs, execute recovery, and check recovery status.
-Call each tool ONLY ONCE. Never repeat tool calls.
-If this tool returns [CANCELLED], the action was NOT performed. Inform the user it was cancelled and stop.
-You MUST always respond in Korean.
-"""
 
 _slack_mcp_config = {
     "slack": {
@@ -62,13 +49,13 @@ _slack_mcp_config = {
     }
 }
 
-_filesystem_mcp_config = {
-    "filesystem": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app"],
-        "transport": "stdio",
-    }
-}
+# _filesystem_mcp_config = {
+#     "filesystem": {
+#         "command": "npx",
+#         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app"],
+#         "transport": "stdio",
+#     }
+# }
 
 _openstack_mcp_config = {
     "openstack": {
@@ -80,19 +67,29 @@ _openstack_mcp_config = {
     }
 }
 
-def build_supervisor(slack_tools, filesystem_tools, openstack_tools, checkpointer) -> str:
+# _mock_mcp_config = {
+#     "mock": {
+#         "command": "python",
+#         "args": ["main.py"],
+#         "cwd": _MOCK_SERVER_DIR,
+#         "env": {**os.environ},
+#         "transport": "stdio",
+#     }
+# }
+
+# def build_agent(slack_tools, openstack_tools, mock_tools, checkpointer):
+def build_agent(slack_tools, openstack_tools, checkpointer):
     openstack_tools = wrap_destructive_tools(openstack_tools)
-    slack_agent = create_react_agent(llm, slack_tools, name="slack_agent", prompt=SLACK_PROMPT)
-    filesystem_agent = create_react_agent(llm, filesystem_tools, name="filesystem_agent", prompt=FILESYSTEM_PROMPT)
-    openstack_agent = create_react_agent(llm, openstack_tools, name="openstack_agent", prompt=OPENSTACK_PROMPT)
+    # all_tools = slack_tools +  openstack_tools + mock_tools
+    all_tools = slack_tools +  openstack_tools
 
-    return create_supervisor(
-        agents=[slack_agent, filesystem_agent, openstack_agent],
-        model=llm,
-        prompt=SUPERVISOR_PROMPT,
-    ).compile(checkpointer=checkpointer)
+    return create_react_agent(
+        llm,
+        all_tools,
+        prompt=AGENT_PROMPT,
+        checkpointer=checkpointer,
+    )
 
-async def answer_generator(supervisor, input, thread_id: str) -> dict:
+async def answer_generator(agent, input, thread_id: str) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    return await supervisor.ainvoke(input, config=config)
-
+    return await agent.ainvoke(input, config=config)

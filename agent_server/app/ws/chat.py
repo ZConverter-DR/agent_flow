@@ -38,8 +38,8 @@ async def websocket_chat(
         await websocket.close(code=1008)
         return
     
-    supervisor = websocket.app.state.supervisor
-    state = await supervisor.aget_state({"configurable": {"thread_id": thread_id}})
+    agent = websocket.app.state.agent
+    state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
     if state and state.values:
         prev_message = [
             {"role": "user" if isinstance(m, HumanMessage) else "assistant",
@@ -68,7 +68,7 @@ async def websocket_chat(
             except (json.JSONDecodeError, AttributeError):
                 graph_input = {"messages": [("human", message)]}
             
-            result = await answer_generator(supervisor, graph_input, thread_id)
+            result = await answer_generator(agent, graph_input, thread_id)
 
             interrupts = result.get("__interrupt__", ())
             if interrupts:
@@ -86,6 +86,6 @@ async def websocket_chat(
     except WebSocketDisconnect as e:
         logger.info(f"[WS] 클라이언트 정상 종료 - client={client}, code={e.code}")
     except Exception as e:
-        logger.error(f"[WS] 루프 오류 - client={client}, state={websocket.client_state}, error={e}")
+        logger.error(f"[WS] 루프 오류 - client={client}, state={websocket.client_state}, error={type(e).__name__}: {e}", exc_info=True)
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011)
