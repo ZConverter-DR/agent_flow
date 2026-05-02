@@ -5,3 +5,4 @@ __pycache__
 API_schema.md
 response/
 request/
+secrets/
