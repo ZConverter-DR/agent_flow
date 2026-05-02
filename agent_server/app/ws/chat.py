@@ -17,9 +17,13 @@ router = APIRouter()
 
 @router.websocket('/ws/chat')
 async def websocket_chat(
+    # FastAPI가 websocket을 DI해줌
     websocket: WebSocket,
+    #  API query parameter을 받는 로직이다 
+    # 파라미터 이름이 "token"이어야 하며 type은 str로 받는다.
     token: str = Query(...)
 ):
+    # 핸드쉐이크 TCP 4계층
     client = websocket.client
     logger.info(f"[WS] 연결 시도 - client={client}")
 
@@ -30,9 +34,10 @@ async def websocket_chat(
     logger.info(f"[WS] 핸드셰이크 완료 - state={websocket.client_state}")
 
     try:
-        data = await verify_jwt(token, redis)
-        thread_id = data.sub    # user_id를 thread_id로 사용
+        data = await verify_jwt(token, redis) # JWT 검증 로직
+        thread_id = data.sub # user_id를 thread_id로 사용
         logger.info(f"[WS] 인증 성공 - client={client}, thread_id={thread_id}")
+
     except Exception as e:
         logger.warning(f"[WS] 인증 실패 - client={client}, error={e}")
         await websocket.close(code=1008)
@@ -58,7 +63,6 @@ async def websocket_chat(
         while True:
             message = await websocket.receive_text()
             logger.debug(f"[WS] 수신 - client={client}, message={message!r}")
-            
             try:
                 parsed = json.loads(message)
                 if parsed.get("type") == "confirm_response":

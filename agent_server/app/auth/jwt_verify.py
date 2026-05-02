@@ -10,6 +10,7 @@ def load_public_key() -> str:
     
 PUBLIC_KEY = load_public_key()
 
+# JWT 검증 함수
 async def verify_jwt(token: str, redis: Redis) -> TokenPayload:
     """
     1. `iss == "horizon-django"` 확인

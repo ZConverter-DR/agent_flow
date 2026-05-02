@@ -15,6 +15,7 @@ _ALLOWED_SLACK_TOOLS = {
 from app.common.config import settings
 from app.ws.chat import router as ws_router
 
+# 외부 MCP tool을 로딩하고 이를 바탕으로 supervisor (AI Orchestrator 핵심 로직)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     slack_client = MultiServerMCPClient(_slack_mcp_config)
