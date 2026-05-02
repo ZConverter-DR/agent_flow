@@ -1,3 +1,7 @@
-.venv
+.venv/
 __pycache__
 .env
+.codex
+API_schema.md
+response/
+request/
