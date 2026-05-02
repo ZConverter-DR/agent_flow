@@ -1,3 +1,17 @@
+# agent_flow
+
+
+## 브랜치 전략
+
+- master: 최종 제출 브랜치
+- develop: 통합 개발 브랜치
+- feat: 기능 개발 브랜치
+
+## 협업 가이드
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+
+
 # 프로젝트 현황 분석
 
 ## 전체 아키텍처
