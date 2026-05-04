@@ -8,6 +8,7 @@ from typing import Optional
 # BaseSettings는 pydantic이 제공하는 설정 클래스이다.
 # Settings 객체 생성 시 클래스에 선언된 필드 값을 OS 환경변수 또는 
 # .env 파일에서 읽어온다.
+
 # 기본값이 없는 필드는 필수 설정값으로 환경변수/.env에 없으면 
 # 검증 에러가 발생한다.
 class Settings(BaseSettings):

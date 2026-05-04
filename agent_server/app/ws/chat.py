@@ -13,6 +13,7 @@ from app.agent.agent import answer_generator
 
 logger = logging.getLogger(__name__)
 
+# FastAPI로 들어오는 요청을 특정 함수로 매핑해주는 라우팅 단위임
 router = APIRouter()
 
 @router.websocket('/ws/chat')
@@ -35,7 +36,7 @@ async def websocket_chat(
 
     try:
         data = await verify_jwt(token, redis) # JWT 검증 로직
-        thread_id = data.sub # user_id를 thread_id로 사용
+        thread_id = data.sub # user_id를 thread_id로 사용 (각 사용자 별 websocket 지원)
         logger.info(f"[WS] 인증 성공 - client={client}, thread_id={thread_id}")
 
     except Exception as e:
@@ -43,9 +44,12 @@ async def websocket_chat(
         await websocket.close(code=1008)
         return
     
+    # websocket.app은 싱글톤 객체로써 모든 스레드가 공유하는 처리를 할 때 사용한다.
     agent = websocket.app.state.agent
+    # checkpoint 생성 / state.values는 LangGraph가 관리하는 상태 객체임
     state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
     if state and state.values:
+        # HumanMessage, AIMessage는 랭그래프에서 제공하는 메세지 객체
         prev_message = [
             {"role": "user" if isinstance(m, HumanMessage) else "assistant",
              "content": m.content}
@@ -53,6 +57,7 @@ async def websocket_chat(
             if isinstance(m, (HumanMessage, AIMessage)) and m.content
         ]
         if prev_message:
+            # 이전 대화 내용을 채팅창에 띄어주는 역할
             await websocket.send_text(json.dumps({
                 "type": "history",
                 "messages": prev_message,
@@ -74,6 +79,7 @@ async def websocket_chat(
             
             result = await answer_generator(agent, graph_input, thread_id)
 
+            # interrupts가 참이면 human in loop 시작
             interrupts = result.get("__interrupt__", ())
             if interrupts:
                 val = interrupts[0].value
