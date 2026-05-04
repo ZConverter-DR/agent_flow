@@ -2,7 +2,6 @@ import asyncio
 import uuid
 from datetime import datetime
 
-
 async def handle_get_server_info(server_id: str) -> dict:
     # Mock: 실제로는 openstacksdk conn.compute.get_server(server_id)
     await asyncio.sleep(0.1)

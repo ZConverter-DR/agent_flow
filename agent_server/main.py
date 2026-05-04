@@ -1,10 +1,15 @@
+import os
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from fastapi import FastAPI
-from app.agent.agent import build_agent, _slack_mcp_config, _openstack_mcp_config
-# from app.agent.agent import build_agent, answer_generator, _slack_mcp_config, _openstack_mcp_config, _mock_mcp_config
+from app.graph_agent.graph import build_graph
+from app.graph_agent.agents import init_agents, _slack_mcp_config, _openstack_mcp_config
+
+from app.common.config import settings
+from app.ws.chat import router as ws_router
 
 _ALLOWED_SLACK_TOOLS = {
     "slack_post_message",
@@ -12,40 +17,24 @@ _ALLOWED_SLACK_TOOLS = {
     "slack_add_reaction",
     "slack_get_channel_history",
 }
-from app.common.config import settings
-from app.ws.chat import router as ws_router
 
-# 외부 MCP tool을 로딩하고 이를 바탕으로 supervisor (AI Orchestrator 핵심 로직)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     slack_client = MultiServerMCPClient(_slack_mcp_config)
-    # filesystem_client = MultiServerMCPClient(_filesystem_mcp_config)
     openstack_client = MultiServerMCPClient(_openstack_mcp_config)
-    # mock_client = MultiServerMCPClient(_mock_mcp_config)
 
     slack_tools = [t for t in await slack_client.get_tools() if t.name in _ALLOWED_SLACK_TOOLS]
-    # filesystem_tools = await filesystem_client.get_tools()
     openstack_tools = await openstack_client.get_tools()
-    # mock_tools = await mock_client.get_tools()
+    all_tools = slack_tools + openstack_tools
 
     redis_url = f"redis://{settings.redis_host}:{settings.redis_port}"
     async with AsyncRedisSaver.from_conn_string(
         redis_url,
         ttl={"default_ttl": 60, "refresh_on_read": True}
     ) as checkpointer:
-        app.state.agent = build_agent(
-            slack_tools,
-            openstack_tools,
-            checkpointer,
-        )
+        await init_agents(all_tools) # MCP연결 + LLM 초기화
+        app.state.agent = build_graph(checkpointer)
         yield
-        # app.state.agent = build_agent(
-        #     slack_tools,
-        #     openstack_tools,
-        #     mock_tools,
-        #     checkpointer,
-        # )
-        # yield
 
 logging.basicConfig(
     level=logging.INFO,

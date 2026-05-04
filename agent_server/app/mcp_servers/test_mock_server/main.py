@@ -65,6 +65,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         case _:
             result = {"error": f"Unknown tool: {name}"}
 
+    logger.info(
+        "CallToolResponse: %s",
+        json.dumps(
+            {"method": "tools/call", "result": {"name": name, "content": result}},
+            indent=2,
+            ensure_ascii=False,
+        ),
+    )
+
     return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
 
 

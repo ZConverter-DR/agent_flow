@@ -11,7 +11,7 @@ Returns: instance ID, name, status (ACTIVE/SHUTOFF/ERROR), flavor, IP addresses,
         "properties": {
             "server_id": {
                 "type": "string",
-                "description": "The OpenStack instance UUID (e.g. 'a1b2c3d4-...')",
+                "description": "The OpenStack instance UUID (e.g. 'a1b2c3d4-...') or name",
             }
         },
         "required": ["server_id"],
