@@ -30,6 +30,8 @@ services:
       - redis
     env_file:
       - ".env"
+    environment:
+      OLLAMA_BASE_URL: "http://172.25.231.96:11434/v1"
     ports:
       - "8000:8000"
     volumes:
