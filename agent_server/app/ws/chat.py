@@ -70,15 +70,24 @@ async def websocket_chat(
             
             try:
                 parsed = json.loads(message)
-                if parsed.get("type") == "confirm_response":
+                if parsed.get("type") == "select_server":
+                    graph_input = Command(resume={
+                        "server_id": parsed.get("server_id"),
+                    })
+                elif parsed.get("type") == "confirm_response":
                     graph_input = Command(resume={
                         "approved": parsed.get("approved"),
                         "reason": parsed.get("reason", ""),
                     })
                 else:
-                    graph_input = {"messages": [("human", parsed.get("content", message))]}
+                    graph_input = {"messages": [("human", parsed.get("content", message))],
+                                   "session_id": data.session_id,
+                    }
             except (json.JSONDecodeError, AttributeError):
-                graph_input = {"messages": [("human", message)]}
+                graph_input = {
+                    "messages": [("human", message)],
+                    "session_id": data.session_id,
+                }
             
             result = await answer_generator(agent, graph_input, thread_id)
 
@@ -86,7 +95,13 @@ async def websocket_chat(
             interrupts = result.get("__interrupt__", ())
             if interrupts:
                 val = interrupts[0].value
-                if val.get("type") == "policy_review":
+                if val.get("type") == "select_server":
+                    await websocket.send_text(json.dumps({
+                        "type":       "select_server",
+                        "message":    val.get("message"),
+                        "candidates": val.get("candidates"),
+                    }, ensure_ascii=False))
+                elif val.get("type") == "policy_review":
                     await websocket.send_text(json.dumps({
                         "type":         "policy_review",
                         "policy":       val.get("policy"),

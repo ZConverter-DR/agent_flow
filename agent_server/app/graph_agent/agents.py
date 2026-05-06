@@ -1,10 +1,16 @@
+import json
 import os
 from pathlib import Path
+from typing import Annotated
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
+from langgraph.prebuilt import InjectedState
 
 from .schemas import RouteDecision, RecoveryPolicy
+from .state import ChatState
 from app.common.config import settings
+from app.common.redis import get_redis
 
 mcp_tools: dict = {}
 intent_llm    = None
@@ -28,9 +34,9 @@ POLICY_SYSTEM = """You are an OpenStack disaster recovery policy expert.
 Given the failed server information, generate a recovery VM policy.
 
 Available resources:
-- flavor: m1.tiny, m1.small, m1.medium, m1.large, m1.xlarge
-- image_id: img-001 (cirros), img-002 (ubuntu-22.04)
-- network_id: net-001 (default), net-002 (private)
+- flavor: m1.tiny
+- image_id: d8cf79e9-9902-485f-9025-62d093cbf3b5
+- network_id: c82c7c3a-150b-4ec4-b149-04b565253fda
 - recovery_type: snapshot_restore, fresh_install, config_replicate
 
 If a rejection reason is provided, you MUST choose a different flavor/image combination.
@@ -38,17 +44,24 @@ If a rejection reason is provided, you MUST choose a different flavor/image comb
 Respond ONLY with the following JSON structure. Do NOT wrap it in any outer key.
 {
   "name": "recovery VM name",
-  "flavor": "m1.small",
-  "image_id": "img-001",
-  "network_id": "net-001",
+  "flavor": "m1.tiny",
+  "image_id": "d8cf79e9-9902-485f-9025-62d093cbf3b5",
+  "network_id": "c82c7c3a-150b-4ec4-b149-04b565253fda",
   "recovery_type": "snapshot_restore",
   "reason": "reason for this policy"
 }
 """
 
-RESPONSE_SYSTEM = """
-Answer the user's question or use the available tools as needed.
-You MUST always respond in Korean."""
+RESPONSE_SYSTEM = """You are a concise assistant that handles OpenStack and Slack tasks.
+
+Rules:
+- Respond ONLY to what the user explicitly asked. Do not add unrequested information, suggestions, or follow-up actions.
+- Use a tool ONLY if the user's request directly requires it. Do not call tools proactively or "just in case."
+- If the user asks a question, answer it. If the user asks to perform an action, perform only that action.
+- Do not explain what you are about to do. Do not summarize what you just did unless the user asked for a summary.
+- If a tool returns more data than the user asked about, extract and return only the relevant fields.
+- If the request is ambiguous, ask one clarifying question. Do not guess intent and act on it.
+- You MUST always respond in Korean."""
 
 _OLLAMA_BASE_URL = "http://10.0.2.2:11434/v1"
 
@@ -83,6 +96,50 @@ _openstack_mcp_config = {
     }
 }
 
+async def _get_auth(session_id: str) -> dict:
+    redis = await get_redis()
+    data = await redis.get(f"chat:session:{session_id}")
+    return json.loads(data)
+
+def _make_openstack_wrapped(raw_tools: dict) -> list:
+    @tool("get_server_info")
+    async def get_server_info_wrapped(
+        server_id: str,
+        state: Annotated[dict, InjectedState],
+    ) -> dict:
+        """Get detailed information about a specific OpenStack VM instance.
+Use this when the user asks about server status, IP address, specs, or current state of a VM.
+        """
+        auth = await _get_auth(state["session_id"])
+        return await raw_tools["get_server_info"].ainvoke({
+            "server_id": server_id,
+            "token": auth["token_id"],
+            "auth_url": auth["auth_url"],
+            "project_id": auth["project_id"],
+        })
+    
+    @tool("create_vm")
+    async def create_vm_wrapped(
+        name: str,
+        flavor: str,
+        image_id: str,
+        network_id: str,
+        state: Annotated[dict, InjectedState],
+    ) -> dict:
+        """Create a new virtual machine instance in OpenStack.
+Use this when the user explicitly requests to create, launch, provision, or deploy a VM."""
+        auth = await _get_auth(state["session_id"])
+        return await raw_tools["create_vm"].ainvoke({
+            "name": name,
+            "flavor": flavor,
+            "image_id": image_id,
+            "network_id": network_id,
+            "auth_url": auth["auth_url"],
+            "token": auth["token_id"],
+            "project_id": auth["project_id"],
+    })
+    
+    return [get_server_info_wrapped, create_vm_wrapped]
 
 async def init_agents(tools: list):
     global mcp_tools, intent_llm, policy_llm, response_agent
@@ -97,6 +154,12 @@ async def init_agents(tools: list):
     intent_llm = base_llm.with_structured_output(RouteDecision, method="json_mode")
     policy_llm = base_llm.with_structured_output(RecoveryPolicy, method="json_mode")
 
+    openstack_tool_names = {"get_server_info", "create_vm"}
+    openstack_wrappers = _make_openstack_wrapped(mcp_tools)
+    other_tools = [t for t in tools if t.name not in openstack_tool_names]
+    response_tools = openstack_wrappers + other_tools
+
+    # 단순 호출, 단순 작업을 위해 따로 agent를 만들어둠.
     response_agent = create_agent(
         model=ChatOpenAI(
             model="qwen2.5:7b",
@@ -104,8 +167,9 @@ async def init_agents(tools: list):
             api_key="ollama",
             temperature=0.3,
         ),
-        tools=tools,
+        tools=response_tools,
         system_prompt=RESPONSE_SYSTEM,
+        state_schema=ChatState,
     )
 
 async def answer_generator(agent, graph_input, thread_id: str) -> dict:

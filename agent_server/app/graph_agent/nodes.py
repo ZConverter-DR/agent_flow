@@ -3,9 +3,11 @@ from datetime import datetime
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_core.exceptions import OutputParserException
 from langgraph.types import interrupt
+from langgraph.errors import GraphInterrupt
 from pydantic import ValidationError
 from . import agents
 from .state import ChatState
+from app.common.redis import get_redis
 
 import logging
 
@@ -51,27 +53,54 @@ async def node_intent_router(state: ChatState):
 
 
 # ── 복구 플로우 노드 ──────────────────────────────────────
+def parse_tool_result(result) -> dict:
+    if isinstance(result, list):
+        text = result[0].get("text", "") if result else ""
+        return json.loads(text)
+    elif isinstance(result, str):
+        return json.loads(result)
+    return result
 
 async def node_get_server_info(state: ChatState):
+    redis = await get_redis()
+    session_metadata = await redis.get(f"chat:session:{state['session_id']}")
+    session = json.loads(session_metadata)
     try:
         result = await agents.mcp_tools["get_server_info"].ainvoke({
-            "server_id": state["server_id"]
+            "server_id": state["server_id"],
+            "token": session["token_id"],
+            "auth_url": session["auth_url"],
+            "project_id": session["project_id"],
         })
         
-        if isinstance(result, list):
-            text = result[0].get("text", "") if result else ""
-            info = json.loads(text)
-        elif isinstance(result, str):
-            info = json.loads(result)
-        else:
-            info = result
-        
+        info = parse_tool_result(result)
+    
+        # 중복 이름 -> 사용자 선택 요청
+        if isinstance(info, dict) and info.get("action") == "select_required":
+            selected = interrupt({
+                "type": "select_server",
+                "message": info["message"],
+                "candidates": info["candidates"],
+            })
+            # 사용자가 선택한 ID로 재조회
+            result = await agents.mcp_tools["get_server_info"].ainvoke({
+                "server_id": selected["server_id"],
+                "token": session["token_id"],
+                "auth_url": session["auth_url"],
+                "project_id": session["project_id"],
+            })
+            info = parse_tool_result(result)
+
         if isinstance(info, dict) and "error" in info:
             return {"error": info["error"]}
+
         return {
             "server_info": info,
             "messages": [AIMessage(content=f"서버 정보 수집 완료: {info.get('name', state['server_id'])}")]
         }
+
+    except GraphInterrupt:
+        raise
     except Exception as e:
         return {"error": f"서버 정보 수집 실패: {str(e)}"}
 
@@ -123,6 +152,9 @@ async def node_review_policy(state: ChatState):
 
 
 async def node_execute_recovery(state: ChatState):
+    redis = await get_redis()
+    session_metadata = await redis.get(f"chat:session:{state['session_id']}")
+    session = json.loads(session_metadata)
     policy = state["recovery_policy"]
     try:
         result = await agents.mcp_tools["create_vm"].ainvoke({
@@ -130,6 +162,9 @@ async def node_execute_recovery(state: ChatState):
             "flavor": policy["flavor"],
             "image_id": policy["image_id"],
             "network_id": policy["network_id"],
+            "token": session["token_id"],
+            "auth_url": session["auth_url"],
+            "project_id": session["project_id"],
         })
 
         if isinstance(result, list):
@@ -170,7 +205,10 @@ async def node_generate_report(state: ChatState):
 # ── 일반 응답 노드 ────────────────────────────────────────
 
 async def node_response(state: ChatState):
-    result = await agents.response_agent.ainvoke({"messages": state["messages"]})
+    result = await agents.response_agent.ainvoke({
+        "messages": state["messages"],
+        "session_id": state.get("session_id"),
+    })
     return {"messages": result["messages"]}
 
 

@@ -7,7 +7,6 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from fastapi import FastAPI
 from app.graph_agent.graph import build_graph
 from app.graph_agent.agents import init_agents, _slack_mcp_config, _openstack_mcp_config
-
 from app.common.config import settings
 from app.ws.chat import router as ws_router
 

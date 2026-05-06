@@ -15,7 +15,12 @@ from handlers import (
     handle_create_vm,
     handle_execute_recovery,
     handle_get_recovery_status,
+    handle_generate_policy,
+    handle_generate_report,
+    handle_save_history,
 )
+
+SENSITIVE_KEYS = {"keystone_token", "password"}
 
 load_dotenv()
 
@@ -32,12 +37,15 @@ app = Server("openstack-mcp-server")
 async def list_tools():
     return ALL_TOOLS
 
+def _safe_args(args: dict) -> dict:
+    return {k: "***" if k in SENSITIVE_KEYS else v for k, v in args.items()}
+
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     logger.info(
         "Received CallToolRequest: %s",
         json.dumps(
-            {"method": "tools/call", "params": {"name": name, "arguments": arguments}},
+            {"method": "tools/call", "params": {"name": name, "arguments": _safe_args(arguments)}},
             indent=2,
             ensure_ascii=False,
         ),
@@ -47,14 +55,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         case "get_server_info":
             result = await handle_get_server_info(
                 server_id=arguments["server_id"],
+                auth_url=arguments["auth_url"],
+                token=arguments["token"],
+                project_id=arguments["project_id"],
             )
 
         case "create_vm":
             result = await handle_create_vm(
                 name=arguments["name"],
-                flavor=arguments["flavor"],
+                flavor_id=arguments["flavor"],
                 image_id=arguments["image_id"],
                 network_id=arguments["network_id"],
+                auth_url=arguments["auth_url"],
+                token=arguments["token"],
+                project_id=arguments["project_id"],
             )
 
         case "execute_recovery":
@@ -69,6 +83,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 job_id=arguments["job_id"],
             )
 
+        case "generate_policy":
+            result = await handle_generate_policy(
+                policy_name=arguments["policy_name"],
+                resource_type=arguments["resource_type"],
+                rules=arguments["rules"],
+            )
+
+        case "generate_report":
+            result = await handle_generate_report(
+                report_type=arguments["report_type"],
+                target=arguments["target"],
+                period=arguments["period"],
+            )
+
+        case "save_history":
+            result = await handle_save_history(
+                action=arguments["action"],
+                target=arguments["target"],
+                detail=arguments["detail"],
+            )
+
         case _:
             result = {"error": f"Unknown tool: {name}"}
     
@@ -81,6 +116,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         ),
     )
 
+    # return result
     return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
 
 async def main():

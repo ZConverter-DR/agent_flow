@@ -1,2 +1,3 @@
 from .compute import handle_get_server_info, handle_create_vm
 from .recovery import handle_execute_recovery, handle_get_recovery_status
+from .history import handle_generate_policy, handle_generate_report, handle_save_history
