@@ -1,19 +1,95 @@
 import json
 import logging
+import re
 import uuid
-from fastapi import APIRouter, WebSocket, Query
+from datetime import datetime, timedelta, timezone
+import jwt
+from fastapi import APIRouter, WebSocket, Query, HTTPException, status
+from fastapi.responses import HTMLResponse
 from fastapi.websockets import WebSocketDisconnect
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import Command
+from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 from app.auth.jwt_verify import verify_jwt
 from app.graph_agent.agents import answer_generator
 from app.common.redis import get_redis
+from app.common.config import settings
+from app.ws import build_dev_chat_html
 
 logger = logging.getLogger(__name__)
 
 # FastAPI로 들어오는 요청을 특정 함수로 매핑해주는 라우팅 단위
 router = APIRouter()
+_DEV_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")
+
+
+class DevChatTokenRequest(BaseModel):
+    username: str
+
+
+def _ensure_dev_chat_enabled() -> None:
+    if not settings.dev_chat_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="dev chat disabled")
+
+
+def _load_dev_private_key() -> str:
+    with open(settings.dev_private_key_path, "r") as f:
+        return f.read()
+
+
+@router.get("/dev/chat", response_class=HTMLResponse)
+async def dev_chat_page():
+    _ensure_dev_chat_enabled()
+    return HTMLResponse(build_dev_chat_html())
+
+
+@router.post("/dev/chat/token")
+async def issue_dev_chat_token(body: DevChatTokenRequest):
+    _ensure_dev_chat_enabled()
+
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username is required")
+    if not _DEV_USERNAME_RE.fullmatch(username):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid username")
+
+    redis = await get_redis()
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(seconds=settings.dev_jwt_ttl)
+    session_id = f"dev-session:{username}"
+    jti = str(uuid.uuid4())
+
+    await redis.set(session_id, username, ex=settings.dev_session_ttl)
+
+    payload = {
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "sub": f"dev:{username}",
+        "project_id": "dev-project",
+        "username": username,
+        "roles": ["dev"],
+        "scope": "dev-chat",
+        "session_id": session_id,
+        "jti": jti,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+
+    token = jwt.encode(
+        payload,
+        _load_dev_private_key(),
+        algorithm=settings.jwt_algorithm,
+    )
+    logger.info(
+        "[DEV JWT] 발급 성공 - username=%s, sub=%s, session_id=%s, issued_at=%s, expires_at=%s",
+        username,
+        payload["sub"],
+        session_id,
+        now.isoformat(),
+        exp.isoformat(),
+    )
+    return {"token": token, "username": username}
 
 @router.websocket('/ws/chat')
 async def websocket_chat(
@@ -71,6 +147,13 @@ async def websocket_chat(
             try:
                 parsed = json.loads(message)
                 if parsed.get("type") == "select_server":
+                    logger.info(
+                        "[WS] confirm 응답 수신 - username=%s, thread_id=%s, approved=%s, received_at=%s",
+                        data.username,
+                        thread_id,
+                        parsed.get("approved", False),
+                        datetime.now(timezone.utc).isoformat(),
+                    )
                     graph_input = Command(resume={
                         "server_id": parsed.get("server_id"),
                     })
@@ -87,8 +170,7 @@ async def websocket_chat(
                 graph_input = {
                     "messages": [("human", message)],
                     "session_id": data.session_id,
-                }
-            
+                }            
             result = await answer_generator(agent, graph_input, thread_id)
 
             # Human in the loop 처리

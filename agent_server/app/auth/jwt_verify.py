@@ -1,8 +1,11 @@
+import logging
 import jwt
 from fastapi import HTTPException
 from redis.asyncio import Redis
 from app.common.config import settings
 from app.auth.schema import TokenPayload
+
+logger = logging.getLogger(__name__)
 
 def load_public_key() -> str:
     with open(settings.public_key_path, "r") as f:
@@ -57,4 +60,12 @@ async def verify_jwt(token: str, redis: Redis) -> TokenPayload:
     if not is_first:
         raise HTTPException(409, "이미 사용된 토큰(replay)")
     
-    return TokenPayload(**payload)
+    token_payload = TokenPayload(**payload)
+    logger.info(
+        "[JWT] 검증 성공 - username=%s, sub=%s, session_id=%s, verified_at=%s",
+        token_payload.username,
+        token_payload.sub,
+        token_payload.session_id,
+        token_payload.iat,
+    )
+    return token_payload
