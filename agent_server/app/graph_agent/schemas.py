@@ -23,3 +23,4 @@ class RecoveryPolicy(BaseModel):
         "snapshot_restore", "fresh_install", "config_replicate"
     ] = Field(description="복구 방식")
     reason: str = Field(description="해당 정책을 선택한 이유")
+    

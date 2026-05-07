@@ -151,6 +151,7 @@ async def init_agents(tools: list):
         api_key="ollama",
         temperature=0,
     )
+    
     intent_llm = base_llm.with_structured_output(RouteDecision, method="json_mode")
     policy_llm = base_llm.with_structured_output(RecoveryPolicy, method="json_mode")
 
